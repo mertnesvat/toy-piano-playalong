@@ -66,3 +66,5 @@ audio { width: 100%; margin-top: 8px; }
 .row > label.btn { flex: none; color: #fff; font-size: 1rem; }
 .syncbar { background: var(--card); border: 2px solid #f5d000; border-radius: 14px; padding: 12px 16px; margin-top: 8px; }
 .syncbar #p-sync-next { font-size: 1.15rem; font-weight: 600; margin: 0 0 4px; }
+.hint-box { background: #fff8d6; border: 1px solid #f0d36b; border-radius: 12px; padding: 10px 14px; margin: 8px 0; }
+.hint-box p { margin: 0 0 8px; }
