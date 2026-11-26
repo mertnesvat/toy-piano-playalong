@@ -270,6 +270,7 @@ function player(s: Song) {
 
   // tap-to-sync: tap when each line starts; each tap also moves the lines after it
   let syncing = -1;
+  const before: Line[][] = []; // lyrics before each tap, so a redo restores them exactly
   const syncBtn = $<HTMLButtonElement>('#p-sync'), bar = $('#p-syncbar');
   syncBtn.hidden = !s.lines.length;
   const showNext = () => {
@@ -287,6 +288,7 @@ function player(s: Song) {
   };
   syncBtn.onclick = () => {
     syncing = 0;
+    before.length = 0;
     bar.hidden = false;
     showNext();
     audio.currentTime = 0;
@@ -294,6 +296,7 @@ function player(s: Song) {
   };
   $('#p-tap').onclick = () => {
     if (syncing < 0 || syncing >= s.lines.length) return;
+    before.push(s.lines);
     s.lines = tapLine(s.lines, syncing++, audio.currentTime);
     showNext();
     saveLines();
@@ -301,6 +304,8 @@ function player(s: Song) {
   $('#p-undo').onclick = () => {
     if (syncing <= 0) return;
     syncing--;
+    s.lines = before.pop() ?? s.lines;
+    saveLines();
     audio.currentTime = Math.max(0, (syncing ? s.lines[syncing - 1].start : s.lines[0].start - 5) - 0.5);
     audio.play();
     showNext();
