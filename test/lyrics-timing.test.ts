@@ -109,6 +109,15 @@ describe('tap-to-sync', () => {
     expect(back.map((l) => [l.start, l.end])).toEqual(t.map((l) => [l.start, l.end]));
   });
 
+  it('redoing an early tap restores the line before it', () => {
+    const lines = parseLrc('[00:10.00] one two three\n[00:16.00] four five', { spans: [], starts: [] });
+    const early = tapLine(lines, 1, 10.1);
+    expect(early[0].end).toBeCloseTo(10.1);
+    const redo = tapLine(early, 1, 16);
+    expect(redo[0].end).toBe(16);
+    expect(redo[0].words).toEqual(lines[0].words); // the same timing as before the mistake
+  });
+
   it('a tap cannot move a line before the one it follows', () => {
     const t = tapLine(tapLine(base, 0, 20), 1, 10);
     expect(t[1].start).toBeCloseTo(20.1);

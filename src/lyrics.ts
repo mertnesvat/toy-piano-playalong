@@ -153,7 +153,12 @@ export function tapLine(lines: Line[], i: number, t: number): Line[] {
   // keep each line's own end (it may stop early before an instrumental break), just never past the next line
   out.forEach((l, k) => (l.end = Math.min(l.end, out[k + 1]?.start ?? Infinity)));
   const p = out[i - 1];
-  if (p && p.words.some((w) => w.start >= p.end)) p.words = spreadWords(p.text, p.start, p.end); // its words ran past the new end
+  if (p) {
+    // a line that ran into the tapped one follows the tap both ways (so redoing an early tap restores it); a real break stays
+    const runsOn = Math.abs(lines[i - 1].end - lines[i].start) < 0.01;
+    p.end = runsOn ? withEnd(p.start, t) : Math.min(lines[i - 1].end, t);
+    if (p.end !== lines[i - 1].end) p.words = spreadWords(p.text, p.start, p.end);
+  }
   return out;
 }
 
