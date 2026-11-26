@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLrc, spreadWords, toLrc, wordsToLines } from '../src/lyrics';
+import { cleanWhisperWords, parseLrc, spreadWords, toLrc, wordsToLines } from '../src/lyrics';
 
 describe('lyrics', () => {
   it('parses LRC lines and ends each line at the next', () => {
@@ -42,5 +42,11 @@ describe('lyrics', () => {
       { start: 3, end: 3.5, text: ' üç' },
     ]);
     expect(lines.map((l) => l.text)).toEqual(['bir iki', 'üç']);
+  });
+
+  it('removes Whisper repetition loops, credit hallucinations and out-of-range words', () => {
+    const w = (text: string, start: number) => ({ text, start, end: start + 0.2 });
+    const words = [w('yine', 1), w('ah', 2), w('ah', 2.2), w('Ah', 2.4), w('ah', 2.6), w('bayram', 3), w('oluyor', 3.3), w('Altyazı', 9), w('M.K.', 9.2), w('Ağzını', 20), w('O', 30)];
+    expect(cleanWhisperWords(words, 25).map((x) => x.text)).toEqual(['yine', 'bayram', 'oluyor', 'Ağzını']);
   });
 });

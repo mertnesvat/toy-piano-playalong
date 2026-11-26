@@ -102,3 +102,23 @@ export async function spotifyTitle(url: string): Promise<string> {
   if (typeof j.title !== 'string') throw new Error(`Spotify oEmbed returned no title: ${JSON.stringify(j).slice(0, 200)}`);
   return j.title;
 }
+
+/**
+ * Remove common Whisper failure modes on music: a word looping 3+ times ("ah ah ah …"), subtitle-credit
+ * hallucinations learned from Turkish subtitles, and timestamps past the end of the audio.
+ */
+export function cleanWhisperWords(words: Word[], duration: number): Word[] {
+  const junk = /^(altyazı|abone|izlediğiniz|teşekkürler)/i;
+  const kept = words.filter((w) => w.start < duration);
+  const out: Word[] = [];
+  for (let i = 0; i < kept.length; ) {
+    const norm = (w: Word) => w.text.toLowerCase().replace(/[^\p{L}]/gu, '');
+    let j = i;
+    while (j < kept.length && norm(kept[j]) === norm(kept[i])) j++;
+    if (j - i < 3) out.push(...kept.slice(i, j));
+    i = j;
+  }
+  // drop a hallucinated credit and the rest of its line (e.g. "Altyazı M.K.")
+  const bad = out.findIndex((w) => junk.test(w.text));
+  return bad >= 0 ? out.filter((w, k) => k < bad || w.start - out[bad].start > 3) : out;
+}

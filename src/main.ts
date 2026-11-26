@@ -1,7 +1,7 @@
 import './style.css';
 import { decodeMono, recordMic, recordTab, type Recording } from './audio';
 import { allSongs, deleteSong, getSong, saveSong, type Song } from './db';
-import { fetchLrclib, fmtTime, parseLrc, spotifyTitle, toLrc, wordsToLines, type Line } from './lyrics';
+import { cleanWhisperWords, fetchLrclib, fmtTime, parseLrc, spotifyTitle, toLrc, wordsToLines, type Line } from './lyrics';
 import { KEYS, bestFit, describe, mapToToy } from './mapping';
 import type { Note } from './melody';
 import { playView } from './play';
@@ -211,7 +211,7 @@ function editor(existing?: Song) {
       const { pcm } = await decodeMono(s.audio, 16000);
       const r = await runWorker<{ words: { text: string; start: number; end: number }[] }>(
         whisperWorker, { audio: pcm, model: $<HTMLSelectElement>('#whisper-model').value }, [pcm.buffer], $('#lyrics-prog'), $('#lyrics-status'));
-      const lines = wordsToLines(r.words);
+      const lines = wordsToLines(cleanWhisperWords(r.words, s.duration || Infinity));
       s.lines = lines; s.lrc = lrc.value = toLrc(lines); s.lyricsSource = 'Whisper transcription';
       status('lyrics-status', `Transcribed ${r.words.length} words. Machine transcription of old recordings makes mistakes: fix the text below.`, 'ok');
     } catch (e) {

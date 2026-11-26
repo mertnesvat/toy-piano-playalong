@@ -80,8 +80,9 @@ export function playView(canvas: HTMLCanvasElement, notes: Note[], keys: number[
       g.roundRect(r.x + pad, y0, r.w - 2 * pad, Math.max(y1 - y0, 6), 8);
       g.fill();
       if (!k.black) {
-        const cy = Math.min(y1 - r.w * 0.3, hitY - 4);
-        if (y1 - y0 > r.w * 0.5) drawShape(g, k.shape, r.x + r.w / 2, cy, r.w * 0.18, '#fff');
+        // shape mark on every note, shrunk to fit short ones
+        const size = Math.min(r.w * 0.18, (y1 - y0) * 0.38);
+        if (size >= 4) drawShape(g, k.shape, r.x + r.w / 2, Math.max(y1 - Math.max(size * 1.4, (y1 - y0) / 2), y0 + size), size, '#fff');
       }
       g.globalAlpha = 1;
     });

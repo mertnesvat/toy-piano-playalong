@@ -21,7 +21,7 @@ Made for the one-octave keyboard on the Fisher-Price baby activity center in the
    - *Just one voice* is a fast pitch tracker for humming or a solo singer.
 5. **Lyrics** (optional).
    - **Find synced lyrics (LRCLIB)** looks the song up by title and artist.
-   - **Transcribe with Whisper** listens to the song on your computer (Turkish, word timings). The first run downloads the model (about 250 MB for *small*, 80 MB for *base*); the browser keeps it afterwards. It takes a few minutes, and old recordings come out with mistakes.
+   - **Transcribe with Whisper** listens to the song on your computer (Turkish, word timings). The first run downloads the model (*small* is roughly 250–600 MB depending on the graphics card, *base* much less) and the browser keeps it afterwards. With a graphics card that supports WebGPU, transcribing a 3-minute song takes seconds; without one it runs on one CPU core and takes several minutes. Old recordings come out with many mistakes, so expect to fix the text.
    - You can always paste or fix the words in the box. One line per row; `[mm:ss.xx]` at the start of a line sets when it is sung, and lines without a time are spread out between the timed ones.
 6. **Fit it to the toy.** The box explains in plain words what happened to the notes. Options:
    - **White keys only (baby mode)**: black-key notes move to the nearest white key.
