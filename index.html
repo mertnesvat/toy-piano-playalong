@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Toy Piano Play-Along</title>
+  <meta name="description" content="Turn a song into colored shapes to play on a one-octave toy piano. Runs entirely in your browser.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%23e94fb0'/></svg>">
+</head>
+<body>
+  <header class="top">
+    <a href="#/" class="brand">
+      <span class="dots"><i style="background:#e94fb0"></i><i style="background:#e0262b"></i><i style="background:#f08a12"></i><i style="background:#1f8a3a"></i><i style="background:#f5d000"></i><i style="background:#1d5fd1"></i><i style="background:#a44fd6"></i><i style="background:#111"></i></span>
+      Toy Piano Play-Along
+    </a>
+  </header>
+  <main id="app"></main>
+
+  <template id="home">
+    <section class="hero">
+      <h1>Play along on the toy piano</h1>
+      <p>Pick a song, and the app turns its tune into the toy's colored shapes and shows the words as it plays. Everything stays in this browser: no account, no upload.</p>
+      <a class="btn big" href="#/new">Add a song</a>
+    </section>
+    <section>
+      <h2>Your songs</h2>
+      <ul id="library" class="library"></ul>
+    </section>
+  </template>
+
+  <template id="editor">
+    <h1>Add a song</h1>
+    <section class="card">
+      <h2><span class="n">1</span> Song</h2>
+      <div class="row">
+        <input id="spotify" type="url" placeholder="Optional: open.spotify.com/track/… link" aria-label="Spotify track link">
+        <button id="spotify-go" class="btn ghost">Get title</button>
+      </div>
+      <p id="spotify-status" class="status"></p>
+      <div class="row">
+        <label>Title <input id="title" placeholder="Song name"></label>
+        <label>Artist <input id="artist" placeholder="Singer or band"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><span class="n">2</span> Audio</h2>
+      <div class="row">
+        <label class="btn">Upload a file<input id="file" type="file" accept="audio/*,video/*" hidden></label>
+        <button id="rec-mic" class="btn ghost">Record microphone</button>
+        <button id="rec-tab" class="btn ghost">Capture a Chrome tab</button>
+      </div>
+      <p class="hint">“Capture a Chrome tab”: start the song in another tab, pick that tab, keep “Also share tab audio” on, and press Stop when the song ends.</p>
+      <div id="rec-bar" class="rec" hidden>
+        <span class="rec-dot"></span><div class="meter"><div id="meter-fill"></div></div>
+        <button id="rec-stop" class="btn">Stop</button>
+      </div>
+      <p id="audio-status" class="status"></p>
+      <audio id="preview" controls hidden></audio>
+    </section>
+
+    <section class="card">
+      <h2><span class="n">3</span> Melody</h2>
+      <div class="row">
+        <select id="method" aria-label="Melody method">
+          <option value="basic-pitch">Full song with instruments (Basic Pitch, ~1 MB model)</option>
+          <option value="yin">Just one voice, e.g. humming or singing (fast)</option>
+        </select>
+        <button id="extract" class="btn">Find the melody</button>
+      </div>
+      <progress id="melody-prog" max="1" hidden></progress>
+      <p id="melody-status" class="status"></p>
+    </section>
+
+    <section class="card">
+      <h2><span class="n">4</span> Lyrics <small>(optional)</small></h2>
+      <div class="row">
+        <button id="lrclib" class="btn ghost">Find synced lyrics (LRCLIB)</button>
+        <button id="whisper" class="btn ghost">Transcribe with Whisper</button>
+        <select id="whisper-model" aria-label="Whisper model">
+          <option value="onnx-community/whisper-small_timestamped">Whisper small (better, ~250 MB once)</option>
+          <option value="onnx-community/whisper-base_timestamped">Whisper base (faster, ~80 MB once)</option>
+        </select>
+      </div>
+      <progress id="lyrics-prog" max="1" hidden></progress>
+      <p id="lyrics-status" class="status"></p>
+      <textarea id="lrc" rows="8" placeholder="Paste or type the words here. One line per row. Optional times like [01:23.40] at the start of a line."></textarea>
+      <p class="hint">Only the title and artist are sent to LRCLIB. Whisper runs on this computer; the song never leaves it.</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="n">5</span> Fit it to the toy</h2>
+      <label class="check"><input id="white-only" type="checkbox"> White keys only (baby mode)</label>
+      <label class="check"><input id="best-fit" type="checkbox"> Shift the key to fit the toy better (will not match the recording)</label>
+      <div id="mapping" class="mapping"></div>
+      <button id="save" class="btn big" disabled>Save and play</button>
+    </section>
+  </template>
+
+  <template id="player">
+    <div class="p-head">
+      <div><h1 id="p-title"></h1><p id="p-artist" class="muted"></p></div>
+      <a id="p-edit" class="btn ghost">Edit</a>
+    </div>
+    <canvas id="p-canvas" class="stage" aria-label="Upcoming notes falling toward the toy's keys"></canvas>
+    <div id="p-lyrics" class="lyrics" aria-live="polite"></div>
+    <div class="controls">
+      <button id="p-start" class="btn ghost" title="Back to the start">⏮</button>
+      <button id="p-back" class="btn ghost" title="Back 5 seconds (←)">−5 s</button>
+      <button id="p-play" class="btn">Play</button>
+      <input id="p-seek" type="range" min="0" step="0.01" value="0" aria-label="Song position">
+      <span id="p-time" class="time"></span>
+      <label>Speed <select id="p-speed"><option value="0.5">50%</option><option value="0.6">60%</option><option value="0.75">75%</option><option value="0.9">90%</option><option value="1" selected>100%</option></select></label>
+      <label class="check"><input id="p-white" type="checkbox"> White keys only</label>
+    </div>
+    <audio id="p-audio" preload="auto"></audio>
+  </template>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
