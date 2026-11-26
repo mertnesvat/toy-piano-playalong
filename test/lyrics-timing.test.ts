@@ -63,6 +63,12 @@ describe('placeLines', () => {
     expect(parseLrc('Bir iki\nüç dört', voice).map((l) => l.start)).toEqual([20, 25.5]);
   });
 
+  it('sorts out-of-order Whisper words before building spans', () => {
+    const w = (text: string, start: number) => ({ text, start, end: start + 0.5 });
+    const { spans } = voiceMap([], 60, [w('a', 10), w('c', 30), w('b', 20)]);
+    expect(spans).toEqual([{ start: 10, end: 10.5 }, { start: 20, end: 20.5 }, { start: 30, end: 30.5 }]);
+  });
+
   it('falls back to every note when nothing wobbles', () => {
     const flat: Note[] = [{ start: 5, end: 6, midi: 60, wobble: 0.01 }, { start: 6, end: 7, midi: 62, wobble: 0.01 }];
     expect(voiceMap(flat, 30).spans[0].start).toBe(5);

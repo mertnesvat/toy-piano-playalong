@@ -33,7 +33,8 @@ export interface VoiceMap { spans: Span[]; starts: number[] }
  */
 export function voiceMap(notes: Note[], duration: number, whisper: Word[] = []): VoiceMap {
   if (whisper.length) {
-    const spans = wordsToLines(whisper).map(({ start, end }) => ({ start, end }));
+    // Whisper's overlapping chunks can return words out of order
+    const spans = wordsToLines([...whisper].sort((a, b) => a.start - b.start)).map(({ start, end }) => ({ start, end }));
     return { spans, starts: spans.map((s) => s.start) };
   }
   let spans = vocalSpans(notes);
