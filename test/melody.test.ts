@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cleanNotes, framesToNotes, pickMelodyLine, type PolyNote } from '../src/melody';
+import { cleanNotes, framesToNotes, pickMelodyLine, tidyLine, voiceRegister, type PolyNote } from '../src/melody';
+import { mergeVibratoSplits } from '../src/basicpitch';
 import { yin, type Frame } from '../src/pitch';
 import { synth } from './synth';
 
@@ -86,5 +87,43 @@ describe('yin', () => {
 
   it('is silent on silence', () => {
     expect(yin(new Float32Array(16000), 16000).every((f) => f.midi === null)).toBe(true);
+  });
+});
+
+describe('voiceRegister and tidyLine', () => {
+  const n = (start: number, midi: number, dur = 0.5) => ({ start, end: start + dur, midi });
+
+  it('finds the register of the notes that wobble like a voice, not the louder steady bass', () => {
+    const voice = [64, 65, 67, 65].map((m, i) => ({ ...n(i, m), amp: 0.5, wobble: 0.4 }));
+    const bass = [40, 43, 40, 43].map((m, i) => ({ ...n(i, m, 1), amp: 0.9, wobble: 0.02 }));
+    expect(voiceRegister([...voice, ...bass]).center).toBeGreaterThanOrEqual(64);
+  });
+
+  it('folds octave errors and bass doublings into the line, keeps repeated notes apart', () => {
+    const line = [n(0, 61), n(0.5, 61), n(1, 73), n(1.5, 68), n(2, 44), n(2.5, 70), n(3, 70), n(3.5, 68)];
+    expect(tidyLine(line, 65).map((x) => x.midi)).toEqual([61, 61, 61, 68, 68, 70, 70, 68]);
+  });
+
+  it('leaves a melody that already sits in its register alone', () => {
+    const line = [60, 62, 64, 65, 67, 69, 67, 65, 64, 62, 60].map((m, i) => n(i * 0.5, m));
+    expect(tidyLine(line, 64)).toEqual(line);
+  });
+});
+
+describe('mergeVibratoSplits', () => {
+  const ev = (startFrame: number, durationFrames: number, pitchMidi = 60) => ({ startFrame, durationFrames, pitchMidi, amplitude: 0.5 });
+  const frames = (dipAt: number | null) => Array.from({ length: 100 }, (_, f) => { const row = new Array(88).fill(0); row[39] = dipAt !== null && Math.abs(f - dipAt) <= 1 ? 0.3 : 0.7; return row; });
+
+  it('joins a held note that vibrato split in two', () => {
+    expect(mergeVibratoSplits([ev(10, 20), ev(30, 20)], frames(null))).toEqual([{ ...ev(10, 40) }]);
+  });
+
+  it('keeps a re-sung note (the activation dips between them)', () => {
+    expect(mergeVibratoSplits([ev(10, 20), ev(30, 20)], frames(29))).toHaveLength(2);
+  });
+
+  it('keeps notes of different pitch, or with a real gap, apart', () => {
+    expect(mergeVibratoSplits([ev(10, 20), ev(30, 20, 62)], frames(null))).toHaveLength(2);
+    expect(mergeVibratoSplits([ev(10, 20), ev(40, 20)], frames(null))).toHaveLength(2);
   });
 });

@@ -94,19 +94,39 @@ export function cleanNotes(notes: (Note & { onset?: boolean })[], { minDur = 0.0
 }
 
 /**
+ * The singer's register: the loudness-weighted median pitch of the notes that wobble like a voice
+ * (same relative threshold as vocalSpans), or of all notes when nothing does (e.g. synth tones).
+ */
+export function voiceRegister(poly: PolyNote[], { factor = 0.8, minWobble = 0.12 } = {}) {
+  const ws = poly.map((n) => n.wobble).filter((w): w is number => w !== undefined).sort((a, b) => a - b);
+  const thr = ws.length ? Math.max(minWobble, factor * ws[Math.floor(ws.length * 0.75)]) : Infinity;
+  const sung = (n: PolyNote) => (n.wobble ?? 0) >= thr;
+  const pool = poly.some(sung) ? poly.filter(sung) : poly;
+  const byPitch = pool.map((n) => ({ m: n.midi, w: n.amp * (n.end - n.start) })).sort((a, b) => a.m - b.m);
+  let half = byPitch.reduce((a, x) => a + x.w, 0) / 2, center = byPitch[0]?.m ?? 60;
+  for (const x of byPitch) { if ((half -= x.w) <= 0) { center = x.m; break; } }
+  return { center, sung };
+}
+
+/**
  * Polyphonic notes (e.g. Basic Pitch) -> the most salient single line.
- * Per 10 ms frame, a Viterbi pass picks one active note (or silence), scoring loudness and
- * a voice-range prior, and penalising leaps. This keeps the voice over oud/kanun/violin
- * ornaments that are quieter or jump around, rather than blindly taking the top note.
+ * Per 10 ms frame, a Viterbi pass picks one active note (or silence), scoring loudness, closeness
+ * to the singer's register and whether the note wobbles like a voice, and penalising leaps. This
+ * keeps the voice over bass lines, chords and oud/kanun/violin ornaments, rather than the top note.
  */
 export function pickMelodyLine(
   poly: PolyNote[],
-  { hop = 0.01, low = 50, high = 81, leapCost = 0.035, silence = 0.05 } = {},
+  { hop = 0.01, leapCost = 0.035, silence = 0.05, width = 8, voiceBonus = 0.5 } = {},
 ): Frame[] {
   if (!poly.length) return [];
   const T = Math.ceil(Math.max(...poly.map((n) => n.end)) / hop);
   const order = poly.map((_, i) => i).sort((a, b) => poly[a].start - poly[b].start);
-  const emit = (n: PolyNote) => n.amp * (n.midi >= low && n.midi <= high ? 1 : 0.3);
+  const { center, sung } = voiceRegister(poly);
+  // full weight within `width` semitones of the singer's register, fading fast beyond (bass lines, high fills)
+  const emit = (n: PolyNote) => {
+    const d = Math.max(0, Math.abs(n.midi - center) - width);
+    return n.amp * Math.exp(-(d * d) / 8) * (sung(n) ? 1 + voiceBonus : 1);
+  };
   // state -1 = silence, otherwise index into poly
   type S = { id: number; score: number; node: number };
   const nodes: { id: number; prev: number }[] = [];
@@ -165,4 +185,37 @@ export function vocalSpans(notes: Note[], { factor = 0.8, minWobble = 0.12, join
     else spans.push({ start: n.start, end: n.end, voiced: n.end - n.start });
   }
   return spans.filter((s) => s.voiced >= minVoiced).map(({ start, end }) => ({ start, end }));
+}
+
+/**
+ * Clean up a picked line. Each note is first moved by whole octaves into ±`band` semitones of the
+ * singer's register `center` (octave errors and bass/treble doublings keep their note name, so the
+ * toy key is unchanged except for C); then a note still more than `keep` semitones from the line's
+ * local median (within ±`window` s) is moved an octave toward it, or dropped if that doesn't fit;
+ * finally a note is moved an octave when that brings it closer to both its neighbours.
+ */
+export function tidyLine(notes: Note[], center: number, { band = 9, window = 4, keep = 7 } = {}): Note[] {
+  const folded = notes.map((n) => {
+    let midi = n.midi;
+    while (midi < center - band) midi += 12;
+    while (midi >= center + band) midi -= 12;
+    return midi < center - band ? n : { ...n, midi }; // a band narrower than an octave can't hold it: leave as is
+  });
+  const med = (t: number, self: Note) => {
+    const near = folded.filter((n) => n !== self && n.end > t - window && n.start < t + window).flatMap((n) => Array(Math.max(1, Math.round((n.end - n.start) * 20))).fill(n.midi));
+    return near.length ? median(near) : self.midi;
+  };
+  const out: Note[] = [];
+  for (const n of folded) {
+    const m = med((n.start + n.end) / 2, n);
+    if (Math.abs(n.midi - m) <= keep) { out.push(n); continue; }
+    const midi = n.midi + 12 * Math.round((m - n.midi) / 12);
+    if (Math.abs(midi - m) <= keep) out.push({ ...n, midi });
+  }
+  // a note an octave away from both neighbours (a flipped octave, e.g. Db4 Db5 Ab4) moves to the octave between them
+  for (let i = 1; i + 1 < out.length; i++) {
+    const a = out[i - 1].midi, b = out[i + 1].midi, cost = (x: number) => Math.abs(x - a) + Math.abs(x - b);
+    for (const x of [out[i].midi - 12, out[i].midi + 12]) if (cost(x) < cost(out[i].midi) && Math.abs(x - center) < band) out[i] = { ...out[i], midi: x };
+  }
+  return out; // no re-merge: repeated notes ("C C G G") must stay separate
 }
