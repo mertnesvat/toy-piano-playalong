@@ -22,13 +22,15 @@ Made for the one-octave keyboard on the Fisher-Price baby activity center in the
 5. **Lyrics** (optional).
    - **Find synced lyrics (LRCLIB)** looks the song up by title and artist.
    - **Transcribe with Whisper** listens to the song on your computer (Turkish, word timings). The first run downloads the model (*small* is roughly 250–600 MB depending on the graphics card, *base* much less) and the browser keeps it afterwards. With a graphics card that supports WebGPU, transcribing a 3-minute song takes seconds; without one it runs on one CPU core and takes several minutes. Old recordings come out with many mistakes, so expect to fix the text.
-   - You can always paste or fix the words in the box. One line per row; `[mm:ss.xx]` at the start of a line sets when it is sung, and lines without a time are spread out between the timed ones.
+   - Pick the song's language next to the Whisper button (Turkish by default; *Detect the language* for anything else).
+   - You can always paste or fix the words in the box. One line per row; `[mm:ss.xx]` at the start of a line sets when it is sung. Lines without a time are placed where the melody sounds like singing (after the intro, skipping instrumental breaks, on the start of sung phrases). That is a guess, so for exact timing use **Sync lyrics** on the play screen.
 6. **Fit it to the toy.** The box explains in plain words what happened to the notes. Options:
    - **White keys only (baby mode)**: black-key notes move to the nearest white key.
    - **Shift the key to fit the toy better**: fewer jumps across the keyboard, but the toy will no longer be in tune with the recording.
 7. **Save and play.** Shapes fall toward the toy's keys; press the key when a shape reaches it. The words show underneath, with the current word highlighted.
    - **Speed** slows the song down without changing its pitch.
    - Drag the position bar to start from any point; **−5 s** or the left arrow goes back 5 seconds; space plays and pauses.
+   - **Sync lyrics**: the song starts from the beginning; press **Tap** (or Enter) the moment each line starts being sung. Every later line moves along with each tap, so when lyrics are only shifted (for example LRCLIB lyrics from a version with a shorter intro) one tap on the first line fixes the rest until the next verse. **Redo the last line** rewinds a little so you can tap it again. Lower the speed to tap more precisely. Taps are saved right away.
 8. Your songs are listed on the start page. They are stored only in this browser (IndexedDB).
 
 ### What happens to the notes

@@ -9,9 +9,9 @@ let asr: any = null;
 let loaded = '';
 let device: 'webgpu' | 'wasm' = 'wasm';
 
-self.onmessage = async (e: MessageEvent<{ audio: Float32Array; model: string }>) => {
+self.onmessage = async (e: MessageEvent<{ audio: Float32Array; model: string; language: string | null }>) => {
   try {
-    const { audio, model } = e.data;
+    const { audio, model, language } = e.data;
     if (loaded !== model) {
       const files = new Map<string, { loaded: number; total: number }>();
       // WebGPU is many times faster; plain WASM is single-threaded here (Pages can't send the COOP/COEP headers threads need)
@@ -34,7 +34,7 @@ self.onmessage = async (e: MessageEvent<{ audio: Float32Array; model: string }>)
       loaded = model;
     }
     post({ type: 'progress', label: `Transcribing on the ${device === 'webgpu' ? 'graphics card' : 'CPU'} (this can take a few minutes)`, pct: -1 });
-    const out = await asr(audio, { language: 'turkish', task: 'transcribe', return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5 });
+    const out = await asr(audio, { language, task: 'transcribe', return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5 });
     const words = (out.chunks ?? [])
       .map((c: { text: string; timestamp: [number, number | null] }) => ({ text: c.text.trim(), start: c.timestamp[0], end: c.timestamp[1] ?? c.timestamp[0] + 0.3 }))
       .filter((w: { text: string }) => w.text);

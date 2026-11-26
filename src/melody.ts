@@ -6,6 +6,7 @@ export interface Note {
   start: number; // seconds
   end: number;
   midi: number; // integer MIDI pitch, after tuning correction and rounding
+  wobble?: number; // pitch spread in semitones (vibrato/glides); high for a voice, ~0 for keyboard-like instruments
 }
 
 export interface PolyNote {
@@ -13,6 +14,7 @@ export interface PolyNote {
   end: number;
   midi: number;
   amp: number; // 0..1 salience
+  wobble?: number;
 }
 
 const median = (a: number[]) => {
@@ -41,14 +43,30 @@ export function framesToNotes(
   });
   const hop = frames.length > 1 ? frames[1].t - frames[0].t : 0.01;
   const notes: (Note & { onset?: boolean })[] = [];
+  const raw = new Map<Note, number[]>(); // unrounded pitches per note, for wobble when frames don't carry it (YIN)
   rounded.forEach((m, i) => {
     const t = frames[i].t;
     const last = notes[notes.length - 1];
     if (m === null) return;
-    if (last && last.midi === m && !frames[i].onset && t - hop / 2 - last.end < 1e-9) last.end = t + hop / 2;
-    else notes.push({ start: t - hop / 2, end: t + hop / 2, midi: m, onset: frames[i].onset });
+    const w = frames[i].wobble;
+    if (last && last.midi === m && !frames[i].onset && t - hop / 2 - last.end < 1e-9) {
+      last.end = t + hop / 2;
+      if (w !== undefined) last.wobble = Math.max(last.wobble ?? 0, w);
+      else raw.get(last)?.push(voiced[i]!);
+    } else {
+      notes.push({ start: t - hop / 2, end: t + hop / 2, midi: m, onset: frames[i].onset, wobble: w });
+      if (w === undefined) raw.set(notes[notes.length - 1], [voiced[i]!]);
+    }
   });
-  return { notes: cleanNotes(notes, { minDur, maxGap }).map(({ start, end, midi }) => ({ start, end, midi })), tuning: tune };
+  raw.forEach((ms, n) => {
+    if (ms.length < 5) return;
+    ms.sort((a, b) => a - b);
+    n.wobble = ms[Math.floor(ms.length * 0.9)] - ms[Math.floor(ms.length * 0.1)];
+  });
+  return {
+    notes: cleanNotes(notes, { minDur, maxGap }).map(({ start, end, midi, wobble }) => (wobble === undefined ? { start, end, midi } : { start, end, midi, wobble })),
+    tuning: tune,
+  };
 }
 
 /**
@@ -60,7 +78,7 @@ export function cleanNotes(notes: (Note & { onset?: boolean })[], { minDur = 0.0
   const merged: (Note & { onset?: boolean })[] = [];
   for (const n of notes) {
     const p = merged[merged.length - 1];
-    if (joins(p, n, maxGap)) p.end = Math.max(p.end, n.end);
+    if (joins(p, n, maxGap)) { p.end = Math.max(p.end, n.end); if (n.wobble !== undefined) p.wobble = Math.max(p.wobble ?? 0, n.wobble); }
     else merged.push({ ...n });
   }
   const out: typeof merged = [];
@@ -68,7 +86,7 @@ export function cleanNotes(notes: (Note & { onset?: boolean })[], { minDur = 0.0
   for (const n of merged) {
     if (n.end - n.start < minDur) { dropped = true; continue; }
     const p = out[out.length - 1];
-    if (dropped && joins(p, n, maxGap + 2 * minDur)) p.end = n.end;
+    if (dropped && joins(p, n, maxGap + 2 * minDur)) { p.end = n.end; if (n.wobble !== undefined) p.wobble = Math.max(p.wobble ?? 0, n.wobble); }
     else out.push(n);
     dropped = false;
   }
@@ -124,6 +142,27 @@ export function pickMelodyLine(
     const t = (f + 0.5) * hop;
     // onset: switching to a note that has just started (a re-struck note), not returning to a held one
     const onset = id >= 0 && ids[f - 1] !== id && t - poly[id].start < 2 * hop;
-    return { t, midi: id < 0 ? null : poly[id].midi, conf: id < 0 ? 0 : 1, onset };
+    return { t, midi: id < 0 ? null : poly[id].midi, conf: id < 0 ? 0 : 1, onset, wobble: id < 0 ? undefined : poly[id].wobble };
   });
+}
+
+export interface Span { start: number; end: number }
+
+/**
+ * Where the voice is singing, from note wobble alone: sung notes bend (vibrato, glides) while most
+ * accompaniment holds pitch. The threshold is relative to the song, because old recordings carry
+ * violin/clarinet vibrato too. Notes without wobble data (YIN) count as sung.
+ * shortcut: a heuristic, weak when the accompaniment wobbles as much as the singer; tap-to-sync is the fix.
+ */
+export function vocalSpans(notes: Note[], { factor = 0.8, minWobble = 0.12, join = 1.2, minVoiced = 1.0 } = {}): Span[] {
+  const ws = notes.map((n) => n.wobble).filter((w): w is number => w !== undefined).sort((a, b) => a - b);
+  const thr = ws.length ? Math.max(minWobble, factor * ws[Math.floor(ws.length * 0.75)]) : -1;
+  const spans: (Span & { voiced: number })[] = [];
+  for (const n of notes) {
+    if ((n.wobble ?? Infinity) < thr) continue;
+    const last = spans[spans.length - 1];
+    if (last && n.start - last.end <= join) { last.end = Math.max(last.end, n.end); last.voiced += n.end - n.start; }
+    else spans.push({ start: n.start, end: n.end, voiced: n.end - n.start });
+  }
+  return spans.filter((s) => s.voiced >= minVoiced).map(({ start, end }) => ({ start, end }));
 }

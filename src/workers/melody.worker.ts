@@ -31,12 +31,10 @@ self.onmessage = async (e: MessageEvent<MelodyRequest>) => {
     );
     // melodiaTrick on, vocal-ish range; thresholds a bit stricter than defaults to skip faint accompaniment
     const events = bp.outputToNotesPoly(frames, onsets, 0.5, 0.3, 11, true, 1400, 70, true);
-    const poly: PolyNote[] = bp.noteFramesToTime(events).map((n, i) => ({
-      start: n.startTimeSeconds,
-      end: n.startTimeSeconds + n.durationSeconds,
-      midi: n.pitchMidi + fineOffset(contours, events[i].startFrame, events[i].durationFrames, n.pitchMidi),
-      amp: n.amplitude,
-    }));
+    const poly: PolyNote[] = bp.noteFramesToTime(events).map((n, i) => {
+      const f = finePitch(contours, events[i].startFrame, events[i].durationFrames, n.pitchMidi);
+      return { start: n.startTimeSeconds, end: n.startTimeSeconds + n.durationSeconds, midi: n.pitchMidi + f.offset, amp: n.amplitude, wobble: f.wobble };
+    });
     post({ type: 'progress', label: 'Picking the melody line', pct: 1 });
     post({ type: 'done', ...framesToNotes(pickMelodyLine(poly), { minConf: 0.5, smooth: 1 }), poly: poly.length });
   } catch (err) {
@@ -45,11 +43,12 @@ self.onmessage = async (e: MessageEvent<MelodyRequest>) => {
 };
 
 /**
- * Sub-semitone offset of a note from the contour output (3 bins per semitone from A0), using a
+ * Sub-semitone pitch of a note from the contour output (3 bins per semitone from A0), using a
  * parabolic fit around the peak. Basic Pitch's own pitch bends are whole bins (33 cents): too
- * coarse to estimate the tuning of an old recording.
+ * coarse to estimate the tuning of an old recording. `offset` is the median; `wobble` is the
+ * 10-90% spread in semitones: voices (vibrato, glides) wobble, piano/bells/kanun hold steady.
  */
-function fineOffset(contours: number[][], start: number, len: number, midi: number): number {
+function finePitch(contours: number[][], start: number, len: number, midi: number): { offset: number; wobble: number } {
   // +1: measured with concert-pitch synthesized tones, the contour peak sits one bin above 3*(midi-21)
   const c = 3 * (midi - 21) + 1;
   const offs: number[] = [];
@@ -62,5 +61,6 @@ function fineOffset(contours: number[][], start: number, len: number, midi: numb
     offs.push((k - c + (den < 0 ? (a - d) / (2 * den) : 0)) / 3);
   }
   offs.sort((x, y) => x - y);
-  return offs.length ? offs[offs.length >> 1] : 0;
+  const q = (p: number) => offs[Math.min(offs.length - 1, Math.floor(p * offs.length))];
+  return offs.length ? { offset: q(0.5), wobble: q(0.9) - q(0.1) } : { offset: 0, wobble: 0 };
 }

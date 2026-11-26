@@ -1,4 +1,5 @@
-// Lyrics: LRC parsing/formatting, word timing, and the LRCLIB lookup.
+// Lyrics: LRC parsing/formatting, word timing, placing untimed lines, tap-to-sync, and the LRCLIB lookup.
+import { vocalSpans, type Note, type Span } from './melody';
 
 export interface Word { start: number; end: number; text: string }
 export interface Line { start: number; end: number; text: string; words: Word[] }
@@ -23,40 +24,150 @@ export function spreadWords(text: string, start: number, end: number): Word[] {
   });
 }
 
+/** Where the singing is: sung spans, plus times where a sung phrase begins (to snap lines to). */
+export interface VoiceMap { spans: Span[]; starts: number[] }
+
 /**
- * Parse LRC-style text ("[mm:ss.xx] words" per line). Lines without a time are spread evenly
- * between their timed neighbours (or across [songStart, songEnd]). Each line ends where the
- * next begins (capped at 8 s so instrumental breaks don't keep the last line lit).
+ * Build the voice map from what the app has: Whisper's word times when a transcription exists,
+ * else the melody (notes that wobble like a voice, split at rests), else the whole song.
  */
-export function parseLrc(text: string, songStart = 0, songEnd = 0, keep: Line[] = []): Line[] {
-  const raw = text.split(/\r?\n/).map((l) => {
-    const m = l.match(TIME);
-    return m ? { t: +m[1] * 60 + +m[2], text: m[3].trim() } : { t: null as number | null, text: l.trim() };
-  }).filter((l) => l.text || l.t !== null);
-  const meta = /^\[(ar|ti|al|by|offset|length|re|ve):/i;
-  const rows = raw.filter((r) => !meta.test(r.text));
-  // fill untimed rows by interpolating between known times
-  const times = rows.map((r) => r.t);
-  for (let i = 0; i < rows.length; i++) {
-    if (times[i] !== null) continue;
-    let j = i;
-    while (j < rows.length && times[j] === null) j++;
-    const a = i > 0 ? times[i - 1]! : songStart;
-    const b = j < rows.length ? times[j]! : Math.max(songEnd, a + (j - i) * 3);
-    for (let k = i; k < j; k++) times[k] = a + ((b - a) * (k - i + (i > 0 ? 1 : 0))) / (j - i + (i > 0 ? 1 : 0));
-    i = j - 1;
+export function voiceMap(notes: Note[], duration: number, whisper: Word[] = []): VoiceMap {
+  if (whisper.length) {
+    // Whisper's overlapping chunks can return words out of order
+    const spans = wordsToLines([...whisper].sort((a, b) => a.start - b.start)).map(({ start, end }) => ({ start, end }));
+    return { spans, starts: spans.map((s) => s.start) };
   }
-  const lines: Line[] = rows.map((r, i) => {
-    const start = times[i]!;
-    const next = i + 1 < rows.length ? times[i + 1]! : Math.max(songEnd, start + 4);
-    const end = Math.min(next, start + 8);
-    const old = keep.find((l) => Math.abs(l.start - start) < 0.01 && l.text === r.text);
-    return { start, end, text: r.text, words: old ? old.words : spreadWords(r.text, start, end) };
-  }).filter((l) => l.text);
-  return lines.sort((a, b) => a.start - b.start);
+  let spans = vocalSpans(notes);
+  if (!spans.length) spans = vocalSpans(notes.map(({ start, end, midi }) => ({ start, end, midi }))); // no wobble info: every note counts
+  if (!spans.length) return { spans: [{ start: 0, end: duration }], starts: [] };
+  // a phrase starts at a note that follows a rest of 0.25 s or more, inside a sung span
+  const starts = spans.map((s) => s.start);
+  notes.forEach((n, i) => {
+    if (i && n.start - notes[i - 1].end >= 0.25 && spans.some((s) => n.start > s.start && n.start < s.end)) starts.push(n.start);
+  });
+  return { spans, starts: starts.sort((a, b) => a - b) };
 }
 
-export const toLrc = (lines: Line[]) => lines.map((l) => `[${fmtTime(l.start)}] ${l.text}`).join('\n');
+/**
+ * Start times for untimed lines. Each line's share of the sung time is proportional to its length
+ * (instrumental parts get none). A small DP then puts the lines, in order, on the phrase starts
+ * closest to those shares; a line with no phrase start within about a second keeps its share's time.
+ */
+export function placeLines(texts: string[], { spans, starts }: VoiceMap): number[] {
+  const total = spans.reduce((a, s) => a + s.end - s.start, 0);
+  if (!spans.length || total <= 0) return texts.map(() => spans[0]?.start ?? 0);
+  const weight = texts.map((t) => t.length + 4); // +4: even a one-word line takes a moment to sing
+  const W = weight.reduce((a, b) => a + b, 0);
+  const target = weight.map((_, i) => (total * weight.slice(0, i).reduce((a, b) => a + b, 0)) / W); // sung seconds before line i
+  const sungAt = (t: number) => spans.reduce((a, s) => a + Math.min(Math.max(t - s.start, 0), s.end - s.start), 0);
+  const timeAt = (sung: number) => {
+    for (const s of spans) {
+      if (sung < s.end - s.start) return s.start + sung;
+      sung -= s.end - s.start;
+    }
+    return spans[spans.length - 1].end;
+  };
+  // candidates: phrase starts, plus each line's own proportional time at a small penalty (used when no phrase start is near)
+  const phrase = [...new Set([spans[0].start, ...starts])].filter((c) => c >= spans[0].start && c < spans[spans.length - 1].end);
+  const C = [...phrase.map((t) => ({ t, at: sungAt(t), pen: 0 })), ...target.map((x) => ({ t: timeAt(x), at: x, pen: 1 }))].sort((a, b) => a.t - b.t || a.pen - b.pen);
+  const n = texts.length, m = C.length;
+  const step = (i: number, j: number) => Math.abs(C[j].at - target[i]) + C[j].pen;
+  // cost[j]: best total for lines 0..i with line i on C[j] (strictly increasing times)
+  let cost = C.map((_, j) => step(0, j));
+  const back: number[][] = [];
+  for (let i = 1; i < n; i++) {
+    const next = new Array<number>(m).fill(Infinity), bp = new Array<number>(m).fill(-1);
+    let bestK = -1;
+    for (let j = 0; j < m; j++) {
+      // best earlier candidate at least 0.5 s before this one
+      for (let k = bestK + 1; k < j && C[k].t <= C[j].t - 0.5; k++) if (bestK < 0 || cost[k] < cost[bestK]) bestK = k;
+      if (bestK >= 0 && C[bestK].t <= C[j].t - 0.5) { next[j] = cost[bestK] + step(i, j); bp[j] = bestK; }
+    }
+    back.push(bp);
+    cost = next;
+  }
+  let j = cost.indexOf(Math.min(...cost));
+  if (!Number.isFinite(cost[j])) return target.map(timeAt); // too many lines for the time: plain proportional
+  const out = new Array<number>(n);
+  for (let i = n - 1; i >= 0; i--) { out[i] = C[j].t; if (i) j = back[i - 1][j]; }
+  return out;
+}
+
+/**
+ * Line ends: the next line's start, capped at 8 s so an instrumental break doesn't keep a line lit,
+ * but never before its last known word ends (Whisper lines can be long).
+ */
+const withEnd = (start: number, next: number | undefined, words: Word[] = []) =>
+  Math.min(next ?? Infinity, Math.max(Math.min(next ?? start + 4, start + 8), words[words.length - 1]?.end ?? 0));
+
+/**
+ * Parse LRC-style text ("[mm:ss.xx] words" per line). Times are used exactly as given (after a
+ * [offset:] tag, if any); a line may carry several times. Lines without a time are placed over the
+ * sung parts of the song between their timed neighbours (see placeLines).
+ */
+export function parseLrc(text: string, voice: VoiceMap, keep: Line[] = []): Line[] {
+  const off = +(text.match(/^\[offset:\s*([+-]?\d+)\]/im)?.[1] ?? 0) / 1000; // LRC: positive offset = lyrics earlier
+  const rows: { t: number | null; text: string }[] = [];
+  for (const l of text.split(/\r?\n/)) {
+    let rest = l.trim(), m: RegExpMatchArray | null;
+    const ts: number[] = [];
+    while ((m = rest.match(TIME))) { ts.push(+m[1] * 60 + +m[2] - off); rest = m[3].trim(); }
+    if (/^\[[a-z]+:.*\]$/i.test(rest)) continue; // [ar:], [ti:], [offset:] … metadata
+    if (ts.length) ts.forEach((t) => rows.push({ t, text: rest }));
+    else if (rest) rows.push({ t: null, text: rest });
+  }
+  if (rows.some((r) => r.t !== null)) {
+    // a line with several times appears several times; keep timed rows in order
+    const timed = rows.filter((r) => r.t !== null).sort((a, b) => a.t! - b.t!);
+    let k = 0;
+    rows.forEach((r, i) => { if (r.t !== null) rows[i] = timed[k++]; });
+  }
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].t !== null) continue;
+    let j = i;
+    while (j < rows.length && rows[j].t === null) j++;
+    const a = i > 0 ? rows[i - 1].t! : -Infinity, b = j < rows.length ? rows[j].t! : Infinity;
+    const spans = voice.spans.map((s) => ({ start: Math.max(s.start, a), end: Math.min(s.end, b) })).filter((s) => s.end > s.start);
+    // the timed line before this run is sung in the same window, so it takes its share first
+    const texts = [...(i > 0 ? [rows[i - 1].text] : []), ...rows.slice(i, j).map((r) => r.text)];
+    const starts = placeLines(texts, { spans: spans.length ? spans : [{ start: Number.isFinite(a) ? a : 0, end: Number.isFinite(b) ? b : (Number.isFinite(a) ? a : 0) + 3 * texts.length }], starts: voice.starts.filter((t) => t > a && t < b) }).slice(i > 0 ? 1 : 0);
+    starts.forEach((t, k) => (rows[i + k].t = t));
+    i = j - 1;
+  }
+  return rows.flatMap((r, i) => {
+    if (!r.text) return []; // a timed empty row only ends the line before it
+    const start = r.t!, next = rows[i + 1]?.t ?? undefined;
+    const old = keep.find((l) => Math.abs(l.start - start) < 0.01 && l.text === r.text);
+    const end = withEnd(start, next, old?.words);
+    return [{ start, end, text: r.text, words: old ? old.words : spreadWords(r.text, start, end) }];
+  });
+}
+
+/**
+ * Tap-to-sync: line i starts at t. Every later line moves by the same amount, keeping its timing
+ * relative to the tapped one (so one tap on line 1 also fixes a whole LRCLIB file that is offset).
+ */
+export function tapLine(lines: Line[], i: number, t: number): Line[] {
+  if (i > 0) t = Math.max(t, lines[i - 1].start + 0.1); // a tap can't jump before the line it follows
+  const d = t - lines[i].start;
+  const out = lines.map((l, k) => (k < i ? { ...l } : { ...l, start: l.start + d, end: l.end + d, words: l.words.map((w) => ({ ...w, start: w.start + d, end: w.end + d })) }));
+  // keep each line's own end (it may stop early before an instrumental break), just never past the next line
+  out.forEach((l, k) => (l.end = Math.min(l.end, out[k + 1]?.start ?? Infinity)));
+  const p = out[i - 1];
+  if (p) {
+    // a line that ran into the tapped one follows the tap both ways (so redoing an early tap restores it); a real break stays
+    const runsOn = Math.abs(lines[i - 1].end - lines[i].start) < 0.01;
+    const was = lines[i - 1].end, lastWord = p.words[p.words.length - 1]?.end ?? was;
+    p.end = runsOn ? Math.min(t, withEnd(p.start, t, p.words)) : Math.min(was, t);
+    // re-spread only when its words no longer fit, or they were spread to fill the old end (then they follow the new one)
+    if (p.end !== was && (lastWord > p.end + 0.01 || Math.abs(lastWord - was) < 0.01)) p.words = spreadWords(p.text, p.start, p.end);
+  }
+  return out;
+}
+
+/** Lines as LRC. A line that ends before the next one starts gets an empty timed row, so the break survives a re-parse. */
+export const toLrc = (lines: Line[]) =>
+  lines.flatMap((l, i) => [`[${fmtTime(l.start)}] ${l.text}`, ...(lines[i + 1] && l.end < lines[i + 1].start - 0.05 ? [`[${fmtTime(l.end)}]`] : [])]).join('\n');
 
 /** Group timed words (e.g. from Whisper) into display lines at pauses or every ~8 words. */
 export function wordsToLines(words: Word[]): Line[] {
@@ -104,19 +215,25 @@ export async function spotifyTitle(url: string): Promise<string> {
 }
 
 /**
- * Remove common Whisper failure modes on music: a word looping 3+ times ("ah ah ah …"), subtitle-credit
+ * Remove common Whisper failure modes on music: a word or short phrase looping 3+ times ("ah ah ah …"), subtitle-credit
  * hallucinations learned from Turkish subtitles, and timestamps past the end of the audio.
  */
 export function cleanWhisperWords(words: Word[], duration: number): Word[] {
   const junk = /^(altyazı|abone|izlediğiniz|teşekkürler)/i;
   const kept = words.filter((w) => w.start < duration);
+  const norm = (w: Word) => w.text.toLowerCase().replace(/[^\p{L}]/gu, '');
   const out: Word[] = [];
-  for (let i = 0; i < kept.length; ) {
-    const norm = (w: Word) => w.text.toLowerCase().replace(/[^\p{L}]/gu, '');
-    let j = i;
-    while (j < kept.length && norm(kept[j]) === norm(kept[i])) j++;
-    if (j - i < 3) out.push(...kept.slice(i, j));
-    i = j;
+  // a phrase of 1-4 words repeated 3+ times in a row, crammed or endless, is a decoding loop, not lyrics
+  next: for (let i = 0; i < kept.length; ) {
+    for (let n = 1; n <= 4; n++) {
+      let reps = 1;
+      const same = (a: number, b: number) => { for (let k = 0; k < n; k++) if (b + k >= kept.length || norm(kept[a + k]) !== norm(kept[b + k])) return false; return true; };
+      while (same(i, i + reps * n)) reps++;
+      // sung repeats ("let it be" x4) take time; a decoding loop crams words together or runs on and on
+      const span = kept[i + reps * n - 1]?.end - kept[i].start;
+      if (reps >= 3 && (reps >= 8 || span / (reps * n) < 0.25)) { i += reps * n; continue next; }
+    }
+    out.push(kept[i++]);
   }
   // drop a hallucinated credit and the rest of its line (e.g. "Altyazı M.K.")
   const bad = out.findIndex((w) => junk.test(w.text));
