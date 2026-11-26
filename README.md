@@ -26,7 +26,7 @@ Made for the one-octave keyboard on the Fisher-Price baby activity center in the
    - You can always paste or fix the words in the box. One line per row; `[mm:ss.xx]` at the start of a line sets when it is sung. Lines without a time are placed where the melody sounds like singing (after the intro, skipping instrumental breaks, on the start of sung phrases). That is a guess, so for exact timing use **Sync lyrics** on the play screen.
 6. **Fit it to the toy.** The box explains in plain words what happened to the notes. Options:
    - **White keys only (baby mode)**: black-key notes move to the nearest white key.
-   - **Shift the key to fit the toy better**: fewer jumps across the keyboard, but the toy will no longer be in tune with the recording.
+   - **Shift the key to fit the toy better**: fewer jumps across the keyboard and fewer notes on the unmarked black keys, but the toy will no longer be in tune with the recording. When half or more of the notes would land on black keys, the app suggests this with a one-click button (it never switches it on by itself).
 7. **Save and play.** Shapes fall toward the toy's keys; press the key when a shape reaches it. The words show underneath, with the current word highlighted.
    - **Speed** slows the song down without changing its pitch.
    - Drag the position bar to start from any point; **−5 s** or the left arrow goes back 5 seconds; space plays and pauses.

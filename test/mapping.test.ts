@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KEYS, bestFit, describe as explain, estimateTuning, mapToToy, roundToSemitone } from '../src/mapping';
+import { BLACK_HINT_SHARE, KEYS, blackKeyHint, blackShare, bestFit, describe as explain, estimateTuning, mapToToy, roundToSemitone } from '../src/mapping';
 
 describe('microtone rounding', () => {
   it('rounds to the nearest semitone', () => {
@@ -87,5 +87,31 @@ describe('mapToToy', () => {
     expect(text).toMatch(/30 cents sharp/);
     expect(text).toMatch(/G3 to D4/);
     expect(text).toMatch(/in tune/);
+  });
+});
+
+describe('black-key hint', () => {
+  // Twinkle Twinkle in D-flat: Db Db Ab Ab Bb Bb Ab, Gb Gb F F Eb Eb Db — all but F on black keys
+  const dflat = [61, 61, 68, 68, 70, 70, 68, 66, 66, 65, 65, 63, 63, 61];
+  const off = { whiteOnly: false, bestFit: false };
+
+  it('suggests shifting when most notes land on black keys, and says how much shifting helps', () => {
+    const h = blackKeyHint(dflat, off)!;
+    expect(h.now).toBeCloseTo(12 / 14);
+    expect(h.shifted).toBe(0); // down a semitone to C: all white
+    expect(blackShare(bestFit(dflat).keys)).toBe(0);
+  });
+
+  it('stays quiet in white-keys-only mode, when shifting is already on, or below the threshold', () => {
+    expect(blackKeyHint(dflat, { whiteOnly: true, bestFit: false })).toBeNull();
+    expect(blackKeyHint(dflat, { whiteOnly: false, bestFit: true })).toBeNull();
+    expect(blackKeyHint([60, 60, 67, 67, 69, 69, 67], off)).toBeNull(); // the same tune in C
+    expect(blackKeyHint([], off)).toBeNull();
+  });
+
+  it('shows from the threshold up: half the notes on black keys is enough', () => {
+    expect(BLACK_HINT_SHARE).toBe(0.5);
+    expect(blackKeyHint([60, 61, 62, 63], off)).not.toBeNull(); // 2 of 4 black
+    expect(blackKeyHint([60, 61, 62, 64], off)).toBeNull(); // 1 of 4 black
   });
 });

@@ -2,7 +2,7 @@ import './style.css';
 import { decodeMono, recordMic, recordTab, type Recording } from './audio';
 import { allSongs, deleteSong, getSong, saveSong, type Song } from './db';
 import { cleanWhisperWords, fetchLrclib, fmtTime, parseLrc, spotifyTitle, tapLine, toLrc, voiceMap, wordsToLines, type Line } from './lyrics';
-import { KEYS, bestFit, describe, mapToToy } from './mapping';
+import { KEYS, bestFit, blackKeyHint, describe, mapToToy } from './mapping';
 import type { Note } from './melody';
 import { playView } from './play';
 import { shapeImg } from './shapes';
@@ -234,10 +234,20 @@ function editor(existing?: Song) {
     $<HTMLButtonElement>('#save').disabled = !ok;
     if (!s.notes.length) { $('#mapping').textContent = 'Extract the melody to see how it fits the toy.'; return; }
     const r = mapSong(s);
-    $('#mapping').innerHTML = `<ul>${describe(s.notes.map((n) => n.midi), r, s.tuning).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+    const hint = blackKeyHint(s.notes.map((n) => n.midi), s);
+    const pct = (x: number) => `${Math.round(x * 100)}%`;
+    $('#mapping').innerHTML = (hint ? `<div class="hint-box" role="status">
+        <p><b>Most notes (${pct(hint.now)}) fall on the black keys, which have no shapes.</b> Shifting the key puts ${pct(hint.shifted)} on black keys, but the toy will then not be in tune with the recording.</p>
+        <button id="shift-now" class="btn">Shift the key</button></div>` : '') + `<ul>${describe(s.notes.map((n) => n.midi), r, s.tuning).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
       <div class="strip">${r.keys.slice(0, 40).map((k) => (KEYS[k].black ? '<i class="blk"></i>' : shapeImg(KEYS[k].shape, KEYS[k].color, 18))).join('')}${r.keys.length > 40 ? ' …' : ''}</div>`;
   }
   refresh();
+  // the hint's button is re-rendered by refresh(), so listen on the container
+  $('#mapping').addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).id !== 'shift-now') return;
+    fit.checked = s.bestFit = true;
+    refresh();
+  });
 
   $('#save').onclick = async () => {
     if (lrc.value !== s.lrc) lyricsFrom(lrc.value, s.lyricsSource || 'Typed in', s.lines);

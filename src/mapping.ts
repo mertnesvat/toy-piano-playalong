@@ -122,14 +122,35 @@ export function mapToToy(midis: number[], opts: MapOptions = {}): MapResult {
   return { keys, transpose: t, cost: total, wraps, snapped };
 }
 
-/** Try all 12 transpositions and keep the one that fits the toy best (ties prefer the smallest shift). */
+/**
+ * Try all 12 transpositions and keep the one that fits the toy best (ties prefer the smallest shift).
+ * A note on an unmarked black key costs as much as a one-semitone jump error, so the shift also favours shapes.
+ */
 export function bestFit(midis: number[], whiteOnly = false): MapResult {
-  let best: MapResult | null = null;
+  let best: MapResult | null = null, bestScore = Infinity;
   for (const t of [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6]) {
     const r = mapToToy(midis, { whiteOnly, transpose: t });
-    if (!best || r.cost < best.cost) best = r;
+    const score = r.cost + r.keys.filter(isBlack).length;
+    if (score < bestScore) { best = r; bestScore = score; }
   }
   return best!;
+}
+
+export const blackShare = (keys: number[]) => (keys.length ? keys.filter(isBlack).length / keys.length : 0);
+
+/** Suggest "Shift the key" when at least this share of notes would land on the unmarked black keys. */
+export const BLACK_HINT_SHARE = 0.5;
+
+/**
+ * Black-key shares now and after shifting, when the app should suggest shifting the key; otherwise null.
+ * Not shown in white-keys-only mode or when shifting is already on, nor when shifting wouldn't help.
+ */
+export function blackKeyHint(midis: number[], opts: { whiteOnly: boolean; bestFit: boolean }): { now: number; shifted: number } | null {
+  if (opts.whiteOnly || opts.bestFit || !midis.length) return null;
+  const now = blackShare(mapToToy(midis).keys);
+  if (now < BLACK_HINT_SHARE) return null;
+  const shifted = blackShare(bestFit(midis).keys);
+  return shifted < now ? { now, shifted } : null;
 }
 
 /** Plain-words summary of what the mapping did. */
