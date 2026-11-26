@@ -149,14 +149,17 @@ export function parseLrc(text: string, voice: VoiceMap, keep: Line[] = []): Line
 export function tapLine(lines: Line[], i: number, t: number): Line[] {
   if (i > 0) t = Math.max(t, lines[i - 1].start + 0.1); // a tap can't jump before the line it follows
   const d = t - lines[i].start;
-  const out = lines.map((l, k) => (k < i ? { ...l } : { ...l, start: l.start + d, words: l.words.map((w) => ({ ...w, start: w.start + d, end: w.end + d })) }));
-  out.forEach((l, k) => (l.end = withEnd(l.start, out[k + 1]?.start, l.words)));
+  const out = lines.map((l, k) => (k < i ? { ...l } : { ...l, start: l.start + d, end: l.end + d, words: l.words.map((w) => ({ ...w, start: w.start + d, end: w.end + d })) }));
+  // keep each line's own end (it may stop early before an instrumental break), just never past the next line
+  out.forEach((l, k) => (l.end = Math.min(l.end, out[k + 1]?.start ?? Infinity)));
   const p = out[i - 1];
   if (p && p.words.some((w) => w.start >= p.end)) p.words = spreadWords(p.text, p.start, p.end); // its words ran past the new end
   return out;
 }
 
-export const toLrc = (lines: Line[]) => lines.map((l) => `[${fmtTime(l.start)}] ${l.text}`).join('\n');
+/** Lines as LRC. A line that ends before the next one starts gets an empty timed row, so the break survives a re-parse. */
+export const toLrc = (lines: Line[]) =>
+  lines.flatMap((l, i) => [`[${fmtTime(l.start)}] ${l.text}`, ...(lines[i + 1] && l.end < lines[i + 1].start - 0.05 ? [`[${fmtTime(l.end)}]`] : [])]).join('\n');
 
 /** Group timed words (e.g. from Whisper) into display lines at pauses or every ~8 words. */
 export function wordsToLines(words: Word[]): Line[] {

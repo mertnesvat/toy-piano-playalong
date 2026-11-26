@@ -100,6 +100,15 @@ describe('tap-to-sync', () => {
     expect(parseLrc(toLrc(t), { spans: [], starts: [] }).map((l) => l.start)).toEqual([20, 25.8, 31.17]);
   });
 
+  it('keeps an explicit instrumental break (empty timed row) through taps and saving', () => {
+    const lines = parseLrc('[00:10.00] sung phrase\n[00:12.00]\n[00:30.00] after the break\n[00:34.00] last', { spans: [], starts: [] });
+    expect(lines[0].end).toBe(12);
+    const t = tapLine(lines, 0, 11);
+    expect([t[0].end, t[1].start, t[1].end]).toEqual([13, 31, 35]);
+    const back = parseLrc(toLrc(t), { spans: [], starts: [] }, t);
+    expect(back.map((l) => [l.start, l.end])).toEqual(t.map((l) => [l.start, l.end]));
+  });
+
   it('a tap cannot move a line before the one it follows', () => {
     const t = tapLine(tapLine(base, 0, 20), 1, 10);
     expect(t[1].start).toBeCloseTo(20.1);
