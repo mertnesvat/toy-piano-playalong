@@ -1,0 +1,23 @@
+{
+  "name": "toy-piano-playalong",
+  "version": "1.0.0",
+  "description": "Turn a song into colored shapes you can play on a baby's toy piano while the song plays. It is built for old Turkish songs that have no sheet music online.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
+    "@spotify/basic-pitch": "^1.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.4.0",
+    "vitest": "^5.1.2"
+  },
+  "private": true,
+  "type": "module"
+}
