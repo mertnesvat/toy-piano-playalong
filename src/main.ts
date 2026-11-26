@@ -96,6 +96,7 @@ function editor(existing?: Song) {
   // ---- audio in ----
   const player = $<HTMLAudioElement>('#preview');
   const setAudio = async (blob: Blob, label: string) => {
+    if (blob !== existing?.audio) s.whisper = undefined; // timings of another recording would misplace the lyrics
     s.audio = blob;
     player.src = URL.createObjectURL(blob);
     player.hidden = false;
