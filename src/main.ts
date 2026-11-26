@@ -1,7 +1,7 @@
 import './style.css';
 import { decodeMono, recordMic, recordTab, type Recording } from './audio';
 import { allSongs, deleteSong, getSong, saveSong, type Song } from './db';
-import { cleanWhisperWords, fetchLrclib, fmtTime, parseLrc, spotifyTitle, toLrc, wordsToLines, type Line } from './lyrics';
+import { cleanWhisperWords, fetchLrclib, fmtTime, parseLrc, spotifyTitle, tapLine, toLrc, voiceMap, wordsToLines, type Line } from './lyrics';
 import { KEYS, bestFit, describe, mapToToy } from './mapping';
 import type { Note } from './melody';
 import { playView } from './play';
@@ -173,6 +173,7 @@ function editor(existing?: Song) {
         : { kind: 'basic-pitch', audio: pcm, modelUrl: new URL('models/basic-pitch/model.json', location.href).href };
       const r = await runWorker<{ notes: Note[]; tuning: number }>(melodyWorker, msg, [pcm.buffer], $('#melody-prog'), $('#melody-status'));
       s.notes = r.notes; s.tuning = r.tuning;
+      if (lrc.value.trim()) lyricsFrom(lrc.value, s.lyricsSource, s.lines); // re-place untimed lines over the new melody
       status('melody-status', `Found ${r.notes.length} notes in ${((performance.now() - t0) / 1000).toFixed(1)} s.`, 'ok');
       refresh();
     } catch (e) {
@@ -185,8 +186,7 @@ function editor(existing?: Song) {
   const lrc = $<HTMLTextAreaElement>('#lrc');
   lrc.value = s.lrc;
   const lyricsFrom = (text: string, source: string, keep: Line[] = []) => {
-    const first = s.notes[0]?.start ?? 0, last = s.notes.at(-1)?.end ?? s.duration;
-    s.lines = parseLrc(text, first, last || s.duration, keep);
+    s.lines = parseLrc(text, voiceMap(s.notes, s.duration, s.whisper), keep);
     s.lrc = lrc.value = text;
     s.lyricsSource = source;
   };
@@ -210,10 +210,13 @@ function editor(existing?: Song) {
       whisperWorker ??= new Worker(new URL('./workers/whisper.worker.ts', import.meta.url), { type: 'module' });
       const { pcm } = await decodeMono(s.audio, 16000);
       const r = await runWorker<{ words: { text: string; start: number; end: number }[] }>(
-        whisperWorker, { audio: pcm, model: $<HTMLSelectElement>('#whisper-model').value }, [pcm.buffer], $('#lyrics-prog'), $('#lyrics-status'));
-      const lines = wordsToLines(cleanWhisperWords(r.words, s.duration || Infinity));
-      s.lines = lines; s.lrc = lrc.value = toLrc(lines); s.lyricsSource = 'Whisper transcription';
-      status('lyrics-status', `Transcribed ${r.words.length} words. Machine transcription of old recordings makes mistakes: fix the text below.`, 'ok');
+        whisperWorker, { audio: pcm, model: $<HTMLSelectElement>('#whisper-model').value, language: $<HTMLSelectElement>('#whisper-lang').value || null }, [pcm.buffer], $('#lyrics-prog'), $('#lyrics-status'));
+      // words where no melody sounds (silent intro, long breaks) are hallucinations
+      s.whisper = cleanWhisperWords(r.words, s.duration || Infinity)
+        .filter((w) => !s.notes.length || s.notes.some((n) => n.start - 1 < w.end && n.end + 1 > w.start));
+      const lines = wordsToLines(s.whisper);
+      lyricsFrom(toLrc(lines), 'Whisper transcription', lines); // re-parse: Whisper's overlapping chunks can come back out of order
+      status('lyrics-status', `Transcribed ${s.whisper.length} words. Machine transcription of old recordings makes mistakes: fix the text below.`, 'ok');
     } catch (e) {
       console.error(e);
       status('lyrics-status', `Transcription failed: ${(e as Error).message.split('\n')[0]}`, 'err');
@@ -256,12 +259,52 @@ function player(s: Song) {
   const playBtn = $<HTMLButtonElement>('#p-play');
   const white = $<HTMLInputElement>('#p-white');
   white.checked = s.whiteOnly;
-  let view = playView($<HTMLCanvasElement>('#p-canvas'), s.notes, mapSong(s).keys, $('#p-lyrics'), s.lines);
+  const makeView = () => playView($<HTMLCanvasElement>('#p-canvas'), s.notes, mapSong(s).keys, $('#p-lyrics'), s.lines);
+  let view = makeView();
   white.onchange = async () => {
     s.whiteOnly = white.checked;
-    view = playView($<HTMLCanvasElement>('#p-canvas'), s.notes, mapSong(s).keys, $('#p-lyrics'), s.lines);
+    view = makeView();
     await saveSong(s);
   };
+
+  // tap-to-sync: tap when each line starts; each tap also moves the lines after it
+  let syncing = -1;
+  const syncBtn = $<HTMLButtonElement>('#p-sync'), bar = $('#p-syncbar');
+  syncBtn.hidden = !s.lines.length;
+  const showNext = () => {
+    $('#p-sync-next').textContent = syncing < s.lines.length
+      ? `Line ${syncing + 1} of ${s.lines.length}: “${s.lines[syncing].text}”`
+      : 'All lines are synced and saved. Press Done, or redo the last line.';
+    $<HTMLButtonElement>('#p-tap').disabled = syncing >= s.lines.length;
+    $<HTMLButtonElement>('#p-undo').disabled = syncing === 0;
+  };
+  const saveLines = async () => {
+    s.lrc = toLrc(s.lines);
+    s.lyricsSource = 'Synced by tapping';
+    view = makeView();
+    await saveSong(s);
+  };
+  syncBtn.onclick = () => {
+    syncing = 0;
+    bar.hidden = false;
+    showNext();
+    audio.currentTime = 0;
+    audio.play();
+  };
+  $('#p-tap').onclick = () => {
+    if (syncing < 0 || syncing >= s.lines.length) return;
+    s.lines = tapLine(s.lines, syncing++, audio.currentTime);
+    showNext();
+    saveLines();
+  };
+  $('#p-undo').onclick = () => {
+    if (syncing <= 0) return;
+    syncing--;
+    audio.currentTime = Math.max(0, (syncing ? s.lines[syncing - 1].start : s.lines[0].start - 5) - 0.5);
+    audio.play();
+    showNext();
+  };
+  $('#p-sync-done').onclick = () => { syncing = -1; bar.hidden = true; };
   $<HTMLSelectElement>('#p-speed').onchange = (e) => (audio.playbackRate = +(e.target as HTMLSelectElement).value);
   playBtn.onclick = () => (audio.paused ? audio.play() : audio.pause());
   audio.onplay = () => (playBtn.textContent = 'Pause');
@@ -272,9 +315,11 @@ function player(s: Song) {
   $('#p-start').onclick = () => (audio.currentTime = 0);
   const onKey = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement).tagName === 'INPUT' && (e.target as HTMLInputElement).type !== 'range') return;
-    if (e.code === 'Space') { e.preventDefault(); playBtn.click(); }
+    // blur: a focused button (e.g. Tap) would otherwise also get clicked on key-up
+    if (e.code === 'Space') { e.preventDefault(); (document.activeElement as HTMLElement | null)?.blur(); playBtn.click(); }
     if (e.code === 'ArrowLeft') audio.currentTime = Math.max(0, audio.currentTime - 5);
     if (e.code === 'ArrowRight') audio.currentTime += 5;
+    if (e.code === 'Enter' && syncing >= 0) { e.preventDefault(); $('#p-tap').click(); }
   };
   addEventListener('keydown', onKey);
   let raf = 0;

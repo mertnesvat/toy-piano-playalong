@@ -1,6 +1,6 @@
 // Song library in IndexedDB. Everything stays in this browser.
 import type { Note } from './melody';
-import type { Line } from './lyrics';
+import type { Line, Word } from './lyrics';
 
 export interface Song {
   id: string;
@@ -14,6 +14,7 @@ export interface Song {
   lrc: string;
   lines: Line[];
   lyricsSource: string;
+  whisper?: Word[]; // word times from the last transcription: where the voice is, even when the text is wrong
   whiteOnly: boolean;
   bestFit: boolean;
   createdAt: number;

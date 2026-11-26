@@ -5,6 +5,7 @@ export interface Frame {
   midi: number | null; // fractional MIDI pitch, null when unvoiced
   conf: number; // 0..1
   onset?: boolean; // a new note starts here (known for Basic Pitch notes, not for YIN)
+  wobble?: number; // pitch spread of the note this frame belongs to (Basic Pitch only)
 }
 
 export const hzToMidi = (hz: number) => 69 + 12 * Math.log2(hz / 440);

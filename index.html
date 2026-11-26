@@ -81,6 +81,10 @@
           <option value="onnx-community/whisper-small_timestamped">Whisper small (better, bigger download)</option>
           <option value="onnx-community/whisper-base_timestamped">Whisper base (faster, smaller download)</option>
         </select>
+        <select id="whisper-lang" aria-label="Song language">
+          <option value="turkish">Turkish</option>
+          <option value="">Detect the language</option>
+        </select>
       </div>
       <progress id="lyrics-prog" max="1" hidden></progress>
       <p id="lyrics-status" class="status"></p>
@@ -112,6 +116,16 @@
       <span id="p-time" class="time"></span>
       <label>Speed <select id="p-speed"><option value="0.5">50%</option><option value="0.6">60%</option><option value="0.75">75%</option><option value="0.9">90%</option><option value="1" selected>100%</option></select></label>
       <label class="check"><input id="p-white" type="checkbox"> White keys only</label>
+      <button id="p-sync" class="btn ghost">Sync lyrics</button>
+    </div>
+    <div id="p-syncbar" class="syncbar" hidden>
+      <p id="p-sync-next" aria-live="polite"></p>
+      <div class="row">
+        <button id="p-tap" class="btn big">Tap: line starts now (Enter)</button>
+        <button id="p-undo" class="btn ghost">Redo the last line</button>
+        <button id="p-sync-done" class="btn ghost">Done</button>
+      </div>
+      <p class="hint">Play the song and tap the moment each line starts being sung. Later lines move along with each tap, so if the timing was only shifted, one tap fixes it all. Lower the speed to tap more precisely.</p>
     </div>
     <audio id="p-audio" preload="auto"></audio>
   </template>
