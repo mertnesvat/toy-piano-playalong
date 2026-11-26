@@ -92,8 +92,12 @@ export function placeLines(texts: string[], { spans, starts }: VoiceMap): number
   return out;
 }
 
-/** Line ends: the next line's start, capped at 8 s so an instrumental break doesn't keep a line lit. */
-const withEnd = (start: number, next: number | undefined) => Math.min(next ?? start + 4, start + 8);
+/**
+ * Line ends: the next line's start, capped at 8 s so an instrumental break doesn't keep a line lit,
+ * but never before its last known word ends (Whisper lines can be long).
+ */
+const withEnd = (start: number, next: number | undefined, words: Word[] = []) =>
+  Math.min(next ?? Infinity, Math.max(Math.min(next ?? start + 4, start + 8), words[words.length - 1]?.end ?? 0));
 
 /**
  * Parse LRC-style text ("[mm:ss.xx] words" per line). Times are used exactly as given (after a
@@ -131,8 +135,9 @@ export function parseLrc(text: string, voice: VoiceMap, keep: Line[] = []): Line
   }
   return rows.flatMap((r, i) => {
     if (!r.text) return []; // a timed empty row only ends the line before it
-    const start = r.t!, end = withEnd(start, rows[i + 1]?.t ?? undefined);
+    const start = r.t!, next = rows[i + 1]?.t ?? undefined;
     const old = keep.find((l) => Math.abs(l.start - start) < 0.01 && l.text === r.text);
+    const end = withEnd(start, next, old?.words);
     return [{ start, end, text: r.text, words: old ? old.words : spreadWords(r.text, start, end) }];
   });
 }
@@ -145,7 +150,7 @@ export function tapLine(lines: Line[], i: number, t: number): Line[] {
   if (i > 0) t = Math.max(t, lines[i - 1].start + 0.1); // a tap can't jump before the line it follows
   const d = t - lines[i].start;
   const out = lines.map((l, k) => (k < i ? { ...l } : { ...l, start: l.start + d, words: l.words.map((w) => ({ ...w, start: w.start + d, end: w.end + d })) }));
-  out.forEach((l, k) => (l.end = withEnd(l.start, out[k + 1]?.start)));
+  out.forEach((l, k) => (l.end = withEnd(l.start, out[k + 1]?.start, l.words)));
   const p = out[i - 1];
   if (p && p.words.some((w) => w.start >= p.end)) p.words = spreadWords(p.text, p.start, p.end); // its words ran past the new end
   return out;
@@ -207,13 +212,15 @@ export function cleanWhisperWords(words: Word[], duration: number): Word[] {
   const kept = words.filter((w) => w.start < duration);
   const norm = (w: Word) => w.text.toLowerCase().replace(/[^\p{L}]/gu, '');
   const out: Word[] = [];
-  // a phrase of 1-4 words repeated 3+ times in a row is a decoding loop, not lyrics
+  // a phrase of 1-4 words repeated 3+ times in a row, crammed or endless, is a decoding loop, not lyrics
   next: for (let i = 0; i < kept.length; ) {
     for (let n = 1; n <= 4; n++) {
       let reps = 1;
       const same = (a: number, b: number) => { for (let k = 0; k < n; k++) if (b + k >= kept.length || norm(kept[a + k]) !== norm(kept[b + k])) return false; return true; };
       while (same(i, i + reps * n)) reps++;
-      if (reps >= 3) { i += reps * n; continue next; }
+      // sung repeats ("let it be" x4) take time; a decoding loop crams words together or runs on and on
+      const span = kept[i + reps * n - 1]?.end - kept[i].start;
+      if (reps >= 3 && (reps >= 8 || span / (reps * n) < 0.25)) { i += reps * n; continue next; }
     }
     out.push(kept[i++]);
   }

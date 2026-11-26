@@ -52,9 +52,20 @@ describe('lyrics', () => {
     expect(cleanWhisperWords(words, 25).map((x) => x.text)).toEqual(['yine', 'bayram', 'oluyor', 'Ağzını']);
   });
 
-  it('removes multi-word Whisper loops', () => {
+  it('removes multi-word Whisper loops (crammed timestamps)', () => {
     const t = 'bir iki ah ve yüz ah ve yüz ah ve yüz ah ve üç'.split(' ');
-    const words = t.map((text, i) => ({ text, start: i, end: i + 0.5 }));
+    const words = t.map((text, i) => (i < 2 || i > 10 ? { text, start: i, end: i + 0.5 } : { text, start: 2 + i * 0.05, end: 2.05 + i * 0.05 }));
     expect(cleanWhisperWords(words, 99).map((x) => x.text)).toEqual(['bir', 'iki', 'ah', 've', 'üç']);
+  });
+
+  it('keeps a phrase that is really sung several times', () => {
+    const words = 'let it be let it be let it be let it be'.split(' ').map((text, i) => ({ text, start: i * 0.6, end: i * 0.6 + 0.5 }));
+    expect(cleanWhisperWords(words, 99)).toHaveLength(12);
+  });
+
+  it('keeps the known end of a long Whisper line after reparsing', () => {
+    const words = Array.from({ length: 8 }, (_, i) => ({ text: `w${i}`, start: 10 + i, end: 10.8 + i }));
+    const lines = wordsToLines(words);
+    expect(parseLrc(toLrc(lines), whole(0, 60), lines)[0].end).toBeCloseTo(17.8);
   });
 });
