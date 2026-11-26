@@ -118,6 +118,21 @@ describe('tap-to-sync', () => {
     expect(redo[0].words).toEqual(lines[0].words); // the same timing as before the mistake
   });
 
+  it('a tap keeps a long Whisper line before it intact', () => {
+    const words = Array.from({ length: 8 }, (_, k) => ({ text: `w${k}`, start: 10 + k * 1.25, end: 11 + k * 1.25 })); // 10-19.75 s
+    const lines = parseLrc('[00:10.00] w0 w1 w2 w3 w4 w5 w6 w7\n[00:20.00] next', { spans: [], starts: [] }, [{ start: 10, end: 20, text: 'w0 w1 w2 w3 w4 w5 w6 w7', words }]);
+    expect(lines[0].end).toBe(19.75); // its last word, not the 8 s cap
+    const t = tapLine(lines, 1, 20);
+    expect(t[0].end).toBe(19.75);
+    expect(t[0].words).toEqual(words);
+    // words that run right up to the next line (the line "runs on" into it)
+    const w2 = words.map((w, k) => ({ ...w, end: k === 7 ? 20 : w.end }));
+    const l2 = parseLrc('[00:10.00] w0 w1 w2 w3 w4 w5 w6 w7\n[00:20.00] next', { spans: [], starts: [] }, [{ start: 10, end: 20, text: 'w0 w1 w2 w3 w4 w5 w6 w7', words: w2 }]);
+    const t2 = tapLine(l2, 1, 20);
+    expect([l2[0].end, t2[0].end]).toEqual([20, 20]);
+    expect(t2[0].words).toEqual(w2);
+  });
+
   it('a tap cannot move a line before the one it follows', () => {
     const t = tapLine(tapLine(base, 0, 20), 1, 10);
     expect(t[1].start).toBeCloseTo(20.1);
