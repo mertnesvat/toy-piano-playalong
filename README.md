@@ -6,7 +6,7 @@ Turn a song into colored shapes you can play on a baby's toy piano while the son
 
 Made for the one-octave keyboard on the Fisher-Price baby activity center in the photo: 8 white keys (pink circle, red heart, orange triangle, green square, yellow star, blue hexagon, purple moon, black diamond) and 5 unmarked black keys. Any one-octave C-to-C toy works the same way.
 
-**Open it:** https://mertnesvat.github.io/toy-piano-playalong/ (Chrome on a computer; nothing to install).
+**Open it:** https://mertnesvat.com/toy-piano-playalong/ (Chrome on a computer; nothing to install).
 
 ## How to use it
 
